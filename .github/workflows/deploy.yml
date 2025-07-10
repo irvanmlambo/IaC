@@ -1,0 +1,76 @@
+name: Terraform & Next.js Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
+  TF_VAR_db_user: "admin"
+  TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: ./infrastructure
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./infrastructure
+        run: terraform apply -auto-approve
+
+      - name: Wait for EC2 to be reachable
+        run: sleep 60
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy App via SSH
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            sudo apt update
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt install -y nodejs nginx git mysql-client
+            sudo systemctl stop nginx || true
+
+            rm -rf nextjs-s3-upload-app
+            git clone https://github.com/YOUR_USERNAME/nextjs-s3-upload-app.git
+            cd nextjs-s3-upload-app
+
+            echo "AWS_REGION=us-east-1" > .env.local
+            echo "AWS_BUCKET_NAME=your-bucket-name" >> .env.local
+            echo "DB_HOST=your-db-host" >> .env.local
+            echo "DB_USER=admin" >> .env.local
+            echo "DB_PASS=${{ secrets.DB_PASSWORD }}" >> .env.local
+            echo "DB_NAME=uploadappdb" >> .env.local
+
+            npm install
+            npm run build
+            npm install -g pm2
+            pm2 kill || true
+            pm2 start npm --name nextjs-app -- start
+          EOF
