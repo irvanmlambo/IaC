@@ -4,7 +4,7 @@ variable "region" {
 
 variable "ami_id" {
   description = "AMI ID for the EC2 instance"
-  default     = "ami-0c55b159cbfafe1f0" # Example AMI ID, replace with a valid one
+  default     = "ami-003ac13a1423b41d8" # Example AMI ID, replace with a valid one
 }
 
 variable "key_name" {
