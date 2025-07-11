@@ -35,15 +35,22 @@ jobs:
         working-directory: ./infrastructure
         run: terraform init
 
-      - name: Write SSH private key
+      - name: Import EC2 Key Pair if not in state
         working-directory: ./infrastructure
         run: |
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys
-          chmod 600 githubkeys
+          if ! terraform state list | grep -q 'aws_key_pair.deployer'; then
+            terraform import aws_key_pair.deployer githubkeys
+          else
+            echo "Key pair already managed in state."
+          fi
+
+      - name: Terraform Plan
+        working-directory: ./infrastructure
+        run: terraform plan
 
       - name: Terraform Apply
         working-directory: ./infrastructure
-        run: terraform apply -auto-approve -var="private_key_path=${GITHUB_WORKSPACE}/infrastructure/githubkeys"
+        run: terraform apply -auto-approve -var="private_key_path=githubkeys"
 
       - name: Wait for EC2 to be reachable
         run: sleep 60
