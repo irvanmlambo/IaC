@@ -37,7 +37,7 @@ jobs:
 
       - name: Terraform Apply
         working-directory: ./infrastructure
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="private_key_path=${GITHUB_WORKSPACE}/infrastructure/githubkeys"
 
       - name: Wait for EC2 to be reachable
         run: sleep 60
