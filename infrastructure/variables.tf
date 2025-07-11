@@ -24,5 +24,5 @@ variable "db_username" {
 
 variable "db_password" {
   description = "Password for the RDS database"
-  default     = "Pertunia2404#s"
+  default     = "MySecurePwd123!"
 }
