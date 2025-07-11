@@ -35,6 +35,12 @@ jobs:
         working-directory: ./infrastructure
         run: terraform init
 
+      - name: Write SSH private key
+        working-directory: ./infrastructure
+        run: |
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys
+          chmod 600 githubkeys
+
       - name: Terraform Apply
         working-directory: ./infrastructure
         run: terraform apply -auto-approve -var="private_key_path=${GITHUB_WORKSPACE}/infrastructure/githubkeys"

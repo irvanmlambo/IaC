@@ -14,7 +14,7 @@ variable "key_name" {
 
 variable "private_key_path" {
   description = "Path to the private key file for SSH access"
-  default     = "~/.ssh/my-key-pair.pem" # Replace with your actual private key path
+  default     = "githubkeys" # Replace with your actual private key path
 }
 
 variable "db_username" {
