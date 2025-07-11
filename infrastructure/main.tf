@@ -54,7 +54,7 @@ resource "aws_instance" "app_server" {
 
   connection {
     type        = "ssh"
-    user        = "ubuntu"
+    user        = "ec2_user"
     private_key = file(var.private_key_path)
     host        = self.public_ip
   }
