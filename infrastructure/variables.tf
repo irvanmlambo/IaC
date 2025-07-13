@@ -12,11 +12,6 @@ variable "key_name" {
   default     = "my-key-pair" # Replace with your actual key pair name
 }
 
-variable "private_key_path" {
-  description = "Path to the private key file for SSH access"
-  default     = "${path.module}/githubkeys" # Path to the private key file
-}
-
 variable "db_username" {
   description = "Username for the RDS database"
   default     = "admin"
