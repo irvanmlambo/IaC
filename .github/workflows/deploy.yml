@@ -107,5 +107,49 @@ jobs:
             pm2 kill || true
             pm2 start npm --name nextjs-app -- start
             
+            # Configure nginx to proxy to the Next.js app
+            sudo tee /etc/nginx/sites-available/nextjs-app << 'NGINXEOF'
+            server {
+                listen 80;
+                server_name _;
+                
+                location / {
+                    proxy_pass http://localhost:3000;
+                    proxy_http_version 1.1;
+                    proxy_set_header Upgrade $http_upgrade;
+                    proxy_set_header Connection 'upgrade';
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_cache_bypass $http_upgrade;
+                }
+            }
+            NGINXEOF
+            
+            # Enable the nginx site and restart
+            sudo ln -sf /etc/nginx/sites-available/nextjs-app /etc/nginx/sites-enabled/
+            sudo rm -f /etc/nginx/sites-enabled/default
+            sudo nginx -t && sudo systemctl restart nginx
+            sudo systemctl enable nginx
+            
             echo "Deployment completed successfully!"
+            echo "Application URL: http://${{ steps.get-ip.outputs.instance_ip }}"
           EOF
+
+      - name: Display Access Information
+        run: |
+          echo "🎉 Deployment completed successfully!"
+          echo ""
+          echo "📱 Application Access:"
+          echo "   URL: http://${{ steps.get-ip.outputs.instance_ip }}"
+          echo ""
+          echo "🔧 SSH Access:"
+          echo "   Command: ssh -i infrastructure/githubkeys ubuntu@${{ steps.get-ip.outputs.instance_ip }}"
+          echo ""
+          echo "📊 PM2 Status (run on server):"
+          echo "   pm2 status"
+          echo "   pm2 logs nextjs-app"
+          echo ""
+          echo "🌐 Nginx Status:"
+          echo "   sudo systemctl status nginx"
