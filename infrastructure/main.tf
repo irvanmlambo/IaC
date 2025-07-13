@@ -1,6 +1,6 @@
-resource "aws_key_pair" "deployer" {
-  key_name   = "githubkeys"
-  public_key = file("${path.module}/githubkeys.pub")
+# Use existing key pair instead of creating a new one
+data "aws_key_pair" "deployer" {
+  key_name = "githubkeys"
 }
 
 # Get the latest Ubuntu 22.04 LTS AMI
@@ -27,7 +27,7 @@ data "aws_security_group" "app_server_sg" {
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t2.micro"
-  key_name      = aws_key_pair.deployer.key_name
+  key_name      = data.aws_key_pair.deployer.key_name
   vpc_security_group_ids = [data.aws_security_group.app_server_sg.id]
 
   tags = {
@@ -36,7 +36,7 @@ resource "aws_instance" "app_server" {
 
   # Wait for the instance to be ready
   provisioner "local-exec" {
-    command = "echo 'Instance IP: ${self.public_ip}, Key: ${aws_key_pair.deployer.key_name}'"
+    command = "echo 'Instance IP: ${self.public_ip}, Key: ${data.aws_key_pair.deployer.key_name}'"
   }
 
   provisioner "remote-exec" {
