@@ -75,7 +75,7 @@ jobs:
           ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'EOF'
             sudo apt update
             curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt install -y nodejs nginx git mysql-client
+            sudo apt install -y nodejs nginx git mysql-client net-tools
             sudo systemctl stop nginx || true
 
             # Clean up any existing app
@@ -107,6 +107,16 @@ jobs:
             pm2 kill || true
             pm2 start npm --name nextjs-app -- start
             
+            # Wait for the app to start
+            sleep 10
+            
+            # Check if the app is running
+            if ! pm2 status | grep -q "nextjs-app.*online"; then
+              echo "ERROR: Application failed to start"
+              pm2 logs nextjs-app --lines 20
+              exit 1
+            fi
+            
             # Configure nginx to proxy to the Next.js app
             sudo tee /etc/nginx/sites-available/nextjs-app << 'NGINXEOF'
             server {
@@ -133,8 +143,27 @@ jobs:
             sudo nginx -t && sudo systemctl restart nginx
             sudo systemctl enable nginx
             
+            # Verify nginx is running
+            if ! sudo systemctl is-active --quiet nginx; then
+              echo "ERROR: Nginx failed to start"
+              sudo systemctl status nginx
+              exit 1
+            fi
+            
+            # Test if the app is accessible locally
+            sleep 5
+            if ! curl -f http://localhost:3000 > /dev/null 2>&1; then
+              echo "ERROR: Application not accessible on localhost:3000"
+              pm2 logs nextjs-app --lines 10
+              exit 1
+            fi
+            
             echo "Deployment completed successfully!"
             echo "Application URL: http://${{ steps.get-ip.outputs.instance_ip }}"
+            echo "PM2 Status:"
+            pm2 status
+            echo "Nginx Status:"
+            sudo systemctl status nginx --no-pager
           EOF
 
       - name: Display Access Information
@@ -201,18 +230,22 @@ jobs:
           echo "Getting application status..."
           ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'STATUSEOF'
             echo "=== PM2 Status ==="
-            pm2 status
+            pm2 status || echo "PM2 not found or not running"
             echo ""
             echo "=== Nginx Status ==="
             sudo systemctl status nginx --no-pager
             echo ""
             echo "=== Application Logs ==="
-            pm2 logs nextjs-app --lines 10
+            pm2 logs nextjs-app --lines 10 || echo "No PM2 logs available"
             echo ""
             echo "=== Port Status ==="
-            sudo netstat -tlnp | grep :3000
-            sudo netstat -tlnp | grep :80
+            sudo ss -tlnp | grep :3000 || echo "Port 3000 not listening"
+            sudo ss -tlnp | grep :80 || echo "Port 80 not listening"
             echo ""
             echo "=== Nginx Configuration ==="
             sudo nginx -t
+            echo ""
+            echo "=== Test local connectivity ==="
+            curl -f http://localhost:3000 > /dev/null 2>&1 && echo "✅ App accessible on localhost:3000" || echo "❌ App NOT accessible on localhost:3000"
+            curl -f http://localhost:80 > /dev/null 2>&1 && echo "✅ Nginx accessible on localhost:80" || echo "❌ Nginx NOT accessible on localhost:80"
           STATUSEOF
