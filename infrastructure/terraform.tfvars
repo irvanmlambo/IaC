@@ -1,1 +1,1 @@
-db_password = "DevOps1234@"
+db_password = "DevOps1234#"
