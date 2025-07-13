@@ -10,6 +10,7 @@ env:
   TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
   TF_VAR_db_user: "admin"
   TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+  AWS_REGION: eu-west-1
 
 jobs:
   deploy:
@@ -29,39 +30,19 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: eu-west-1
 
       - name: Write SSH private key
         working-directory: ./infrastructure
         run: |
           echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys
           chmod 600 githubkeys
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys.pub
+          chmod 644 githubkeys.pub
 
       - name: Terraform Init
         working-directory: ./infrastructure
         run: terraform init
-
-      - name: Import EC2 Key Pair if not in state
-        working-directory: ./infrastructure
-        run: |
-          if ! terraform state list | grep -q 'aws_key_pair.deployer'; then
-            terraform import aws_key_pair.deployer githubkeys
-          else
-            echo "Key pair already managed in state."
-          fi
-
-      - name: Import Security Group if not in state
-        working-directory: ./infrastructure
-        env:
-          AWS_REGION: ${{ env.AWS_REGION || 'eu-west-1' }}
-        run: |
-          SG_ID=$(aws ec2 describe-security-groups --region $AWS_REGION --filters Name=group-name,Values=app-server-sg Name=vpc-id,Values=vpc-0c5460a0eeb90c1fd --query 'SecurityGroups[0].GroupId' --output text)
-          echo "Found Security Group ID: $SG_ID"
-          if [ "$SG_ID" != "None" ] && ! terraform state list | grep -q 'aws_security_group.app_server_sg'; then
-            terraform import aws_security_group.app_server_sg $SG_ID
-          else
-            echo "Security group already managed in state or does not exist."
-          fi
 
       - name: Terraform Plan
         working-directory: ./infrastructure
@@ -71,19 +52,27 @@ jobs:
         working-directory: ./infrastructure
         run: terraform apply -auto-approve
 
+      - name: Get EC2 Instance IP
+        working-directory: ./infrastructure
+        id: get-ip
+        run: |
+          INSTANCE_IP=$(terraform output -raw ec2_public_ip)
+          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
+          echo "EC2 Instance IP: $INSTANCE_IP"
+
       - name: Wait for EC2 to be reachable
         run: sleep 60
 
-      - name: Setup SSH
+      - name: Setup SSH for deployment
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ steps.get-ip.outputs.instance_ip }} >> ~/.ssh/known_hosts
 
       - name: Deploy App via SSH
         run: |
-          ssh -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'EOF'
             sudo apt update
             curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
             sudo apt install -y nodejs nginx git mysql-client
@@ -93,7 +82,7 @@ jobs:
             git clone https://github.com/YOUR_USERNAME/nextjs-s3-upload-app.git
             cd nextjs-s3-upload-app
 
-            echo "AWS_REGION=us-east-1" > .env.local
+            echo "AWS_REGION=eu-west-1" > .env.local
             echo "AWS_BUCKET_NAME=your-bucket-name" >> .env.local
             echo "DB_HOST=your-db-host" >> .env.local
             echo "DB_USER=admin" >> .env.local
