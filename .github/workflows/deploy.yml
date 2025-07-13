@@ -153,3 +153,66 @@ jobs:
           echo ""
           echo "🌐 Nginx Status:"
           echo "   sudo systemctl status nginx"
+
+      - name: Verify Security Group Configuration
+        run: |
+          echo "🔒 Checking security group configuration..."
+          
+          # Get the security group ID
+          SG_ID=$(aws ec2 describe-security-groups --region eu-west-1 --filters Name=group-name,Values=app-server-sg --query 'SecurityGroups[0].GroupId' --output text)
+          echo "Security Group ID: $SG_ID"
+          
+          # Check inbound rules
+          echo "Inbound rules:"
+          aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions' --output table
+          
+          # Check if port 80 is open
+          HTTP_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`80`]' --output text)
+          if [ -n "$HTTP_RULE" ]; then
+            echo "✅ Port 80 is open"
+          else
+            echo "❌ Port 80 is NOT open"
+          fi
+          
+          # Check if port 22 is open
+          SSH_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]' --output text)
+          if [ -n "$SSH_RULE" ]; then
+            echo "✅ Port 22 is open"
+          else
+            echo "❌ Port 22 is NOT open"
+          fi
+
+      - name: Test Application Connectivity
+        run: |
+          echo "🔍 Testing application connectivity..."
+          
+          # Wait a bit for the app to fully start
+          sleep 30
+          
+          # Test if the server is reachable
+          echo "Testing HTTP connectivity..."
+          curl -v --connect-timeout 10 http://${{ steps.get-ip.outputs.instance_ip }} || echo "HTTP connection failed"
+          
+          # Test SSH connectivity
+          echo "Testing SSH connectivity..."
+          ssh -i ~/.ssh/id_rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@${{ steps.get-ip.outputs.instance_ip }} "echo 'SSH connection successful'" || echo "SSH connection failed"
+          
+          # Get application status via SSH
+          echo "Getting application status..."
+          ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'STATUSEOF'
+            echo "=== PM2 Status ==="
+            pm2 status
+            echo ""
+            echo "=== Nginx Status ==="
+            sudo systemctl status nginx --no-pager
+            echo ""
+            echo "=== Application Logs ==="
+            pm2 logs nextjs-app --lines 10
+            echo ""
+            echo "=== Port Status ==="
+            sudo netstat -tlnp | grep :3000
+            sudo netstat -tlnp | grep :80
+            echo ""
+            echo "=== Nginx Configuration ==="
+            sudo nginx -t
+          STATUSEOF
