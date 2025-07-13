@@ -14,7 +14,7 @@ variable "key_name" {
 
 variable "private_key_path" {
   description = "Path to the private key file for SSH access"
-  default     = "githubkeys" # Replace with your actual private key path
+  default     = "${path.module}/githubkeys" # Path to the private key file
 }
 
 variable "db_username" {

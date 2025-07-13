@@ -18,6 +18,11 @@ resource "aws_instance" "app_server" {
     Name = "devops-app-server"
   }
 
+  # Wait for the instance to be ready
+  provisioner "local-exec" {
+    command = "echo 'Waiting for instance to be ready...'"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "sudo apt-get update",
@@ -30,9 +35,12 @@ resource "aws_instance" "app_server" {
 
   connection {
     type        = "ssh"
-    user        = "ec2_user"
-    private_key = file(var.private_key_path)
+    user        = "ubuntu"
+    private_key = file("${path.module}/githubkeys")
     host        = self.public_ip
+    timeout     = "5m"
+    agent       = false
+    target_platform = "unix"
   }
 }
 
