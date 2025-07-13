@@ -64,8 +64,8 @@ resource "aws_instance" "app_server" {
 
 resource "aws_db_instance" "mysql_db" {
   engine             = "mysql"
-  engine_version     = "8.0"
-  instance_class     = "db.t2.micro"
+  engine_version     = "8.0.35"
+  instance_class     = "db.t3.micro"
   allocated_storage  = 20
   db_name            = "devopsdb"
   username           = var.db_username
