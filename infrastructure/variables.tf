@@ -4,7 +4,7 @@ variable "region" {
 
 variable "ami_id" {
   description = "AMI ID for the EC2 instance"
-  default     = "ami-0003ba2a7a89ddb0c"
+  default     = "ami-0a0c8eebcdd6dcbd0"  # Ubuntu 22.04 LTS in eu-west-1
 }
 
 variable "key_name" {

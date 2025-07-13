@@ -20,11 +20,13 @@ resource "aws_instance" "app_server" {
 
   # Wait for the instance to be ready
   provisioner "local-exec" {
-    command = "echo 'Waiting for instance to be ready...'"
+    command = "echo 'Instance IP: ${self.public_ip}, Key: ${aws_key_pair.deployer.key_name}'"
   }
 
   provisioner "remote-exec" {
     inline = [
+      "echo 'SSH connection successful'",
+      "whoami",
       "sudo apt-get update",
       "curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash -",
       "sudo apt-get install -y nodejs nginx git mysql-client",
@@ -38,7 +40,7 @@ resource "aws_instance" "app_server" {
     user        = "ubuntu"
     private_key = file("${path.module}/githubkeys")
     host        = self.public_ip
-    timeout     = "5m"
+    timeout     = "10m"
     agent       = false
     target_platform = "unix"
   }
