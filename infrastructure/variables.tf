@@ -14,5 +14,5 @@ variable "db_username" {
 
 variable "db_password" {
   description = "Password for the RDS database"
-  default     = "DevOps123!"  # Known working format for AWS RDS
+  sensitive   = true
 }
