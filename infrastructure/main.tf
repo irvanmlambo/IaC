@@ -19,6 +19,11 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+# Get the default VPC
+data "aws_vpc" "default" {
+  default = true
+}
+
 # Try to look up an existing security group named 'app-server-sg'
 data "aws_security_group" "existing_app_server_sg" {
   filter {
