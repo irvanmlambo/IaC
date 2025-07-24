@@ -116,6 +116,9 @@ jobs:
             
             echo "=== Installing PM2 ==="
             sudo npm install -g pm2
+            export PATH=$PATH:$(npm bin -g)
+            echo "PM2 location: $(which pm2)"
+            pm2 --version || { echo "PM2 install failed"; exit 1; }
             
             echo "=== Checking PM2 installation ==="
             pm2 --version
