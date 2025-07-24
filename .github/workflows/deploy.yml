@@ -119,3 +119,9 @@ jobs:
             pm2 start npm --name nextjs-app -- start
             pm2 status
           EOSSH
+
+      - name: Display Application URL
+        run: |
+          cd infrastructure
+          echo "Your application is available at:"
+          terraform output -raw application_url
