@@ -1,294 +1,80 @@
-name: Terraform & Next.js Deploy
+name: Build and Deploy Next.js
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-
-env:
-  TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
-  TF_VAR_db_user: "admin"
-  TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-  AWS_REGION: eu-west-1
+    branches: [main]
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - name: Cache node_modules and .next/cache
+        uses: actions/cache@v4
         with:
-          terraform_version: 1.7.0
+          path: |
+            node_modules
+            .next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Next.js app
+        run: |
+          export NODE_OPTIONS=--max-old-space-size=3072
+          npm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-1
+          name: nextjs-build
+          path: |
+            .next
+            public
+            node_modules
+            package.json
+            .env.local
+            next.config.ts
 
-      - name: Write SSH private key
-        working-directory: ./infrastructure
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-build
+          path: app
+
+      - name: Copy build to server via rsync
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
         run: |
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys
-          chmod 600 githubkeys
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > githubkeys.pub
-          chmod 644 githubkeys.pub
+          echo "$SSH_KEY" > key.pem
+          chmod 600 key.pem
+          rsync -avz -e "ssh -i key.pem -o StrictHostKeyChecking=no" app/ ubuntu@$SERVER_IP:/home/ubuntu/nextjs-s3-upload-app
 
-      - name: Terraform Init
-        working-directory: ./infrastructure
-        run: terraform init
-
-      - name: Terraform Plan
-        working-directory: ./infrastructure
-        run: terraform plan
-
-      - name: Terraform Apply
-        working-directory: ./infrastructure
-        run: terraform apply -auto-approve
-
-      - name: Get EC2 Instance IP
-        working-directory: ./infrastructure
-        id: get-ip
+      - name: Restart app on server
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
         run: |
-          INSTANCE_IP=$(terraform output -raw ec2_public_ip)
-          echo "instance_ip=$INSTANCE_IP" >> $GITHUB_OUTPUT
-          echo "EC2 Instance IP: $INSTANCE_IP"
-
-      - name: Wait for EC2 to be reachable
-        run: sleep 60
-
-      - name: Setup SSH for deployment
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ steps.get-ip.outputs.instance_ip }} >> ~/.ssh/known_hosts
-
-      - name: Deploy App via SSH
-        run: |
-          ssh -o ServerAliveInterval=60 -o ServerAliveCountMax=10 -tt -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} bash -s <<'EOSSH'
+          echo "$SSH_KEY" > key.pem
+          chmod 600 key.pem
+          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$SERVER_IP <<'EOSSH'
             set -e
-            set -x
-            echo "=== Starting deployment ==="
-            sudo apt update
-            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt install -y nodejs nginx git mysql-client net-tools
-            echo "=== Checking Node.js installation ==="
-            node --version
-            npm --version
-            echo "=== Stopping nginx ==="
-            sudo systemctl stop nginx || true
-            echo "=== Cleaning up existing app ==="
-            rm -rf /home/ubuntu/nextjs-s3-upload-app
-            echo "=== Cloning repository ==="
-            cd /home/ubuntu
-            git clone https://github.com/${{ github.repository }}.git nextjs-s3-upload-app
-            cd nextjs-s3-upload-app
-            echo "=== Creating environment file ==="
-            printf '%s\n' \
-              "AWS_REGION=eu-west-1" \
-              "AWS_BUCKET_NAME=your-bucket-name" \
-              "DB_HOST=your-db-host" \
-              "DB_USER=admin" \
-              "DB_PASS=${{ secrets.DB_PASSWORD }}" \
-              "DB_NAME=uploadappdb" > .env.local
-            echo "=== Installing dependencies ==="
-            npm install
-            echo "=== Building application ==="
-            export NODE_OPTIONS=--max-old-space-size=3072
-            npm run build
-            echo "=== Installing PM2 ==="
-            npm install -g pm2
             export PATH=$PATH:$(npm bin -g):/usr/local/bin
-            echo "PATH is: $PATH"
-            echo "PM2 location: $(which pm2)"
-            pm2 --version || { echo "PM2 install failed"; exit 1; }
-            echo "=== Starting application with PM2 ==="
+            cd /home/ubuntu/nextjs-s3-upload-app
+            npm install -g pm2 || true
             pm2 kill || true
             pm2 start npm --name nextjs-app -- start
-            pm2 logs nextjs-app --lines 20
-            echo "=== Waiting for app to start ==="
-            sleep 15
-            echo "=== Checking PM2 status ==="
             pm2 status
-            echo "=== Checking if app is running ==="
-            if ! pm2 status | grep -q "nextjs-app.*online"; then
-              echo "ERROR: Application failed to start"
-              pm2 logs nextjs-app --lines 20
-              exit 1
-            fi
-            echo "=== Configuring nginx ==="
-            printf '%s\n' \
-              "server {" \
-              "    listen 80;" \
-              "    server_name _;" \
-              "" \
-              "    location / {" \
-              "        proxy_pass http://localhost:3000;" \
-              "        proxy_http_version 1.1;" \
-              "        proxy_set_header Upgrade \$http_upgrade;" \
-              "        proxy_set_header Connection 'upgrade';" \
-              "        proxy_set_header Host \$host;" \
-              "        proxy_set_header X-Real-IP \$remote_addr;" \
-              "        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;" \
-              "        proxy_set_header X-Forwarded-Proto \$scheme;" \
-              "        proxy_cache_bypass \$http_upgrade;" \
-              "    }" \
-              "}" | sudo tee /etc/nginx/sites-available/nextjs-app
-            echo "=== Enabling nginx site ==="
-            sudo ln -sf /etc/nginx/sites-available/nextjs-app /etc/nginx/sites-enabled/
-            sudo rm -f /etc/nginx/sites-enabled/default
-            echo "=== Testing nginx configuration ==="
-            sudo nginx -t
-            echo "=== Starting nginx ==="
-            sudo systemctl restart nginx
-            sudo systemctl enable nginx
-            echo "=== Checking nginx status ==="
-            sudo systemctl status nginx --no-pager
-            echo "=== Verifying nginx is running ==="
-            if ! sudo systemctl is-active --quiet nginx; then
-              echo "ERROR: Nginx failed to start"
-              sudo systemctl status nginx
-              exit 1
-            fi
-            echo "=== Testing local connectivity ==="
-            sleep 5
-            if ! curl -f http://localhost:3000 > /dev/null 2>&1; then
-              echo "ERROR: Application not accessible on localhost:3000"
-              pm2 logs nextjs-app --lines 10
-              exit 1
-            fi
-            echo "=== Deployment completed successfully! ==="
-            echo "Application URL: http://${{ steps.get-ip.outputs.instance_ip }}"
-            echo "PM2 Status:"
-            pm2 status
-            echo "Nginx Status:"
-            sudo systemctl status nginx --no-pager
           EOSSH
-
-      - name: Display Access Information
-        run: |
-          echo "🎉 Deployment completed successfully!"
-          echo ""
-          echo "📱 Application Access:"
-          echo "   URL: http://${{ steps.get-ip.outputs.instance_ip }}"
-          echo ""
-          echo "🔧 SSH Access:"
-          echo "   Command: ssh -i infrastructure/githubkeys ubuntu@${{ steps.get-ip.outputs.instance_ip }}"
-          echo ""
-          echo "📊 PM2 Status (run on server):"
-          echo "   pm2 status"
-          echo "   pm2 logs nextjs-app"
-          echo ""
-          echo "🌐 Nginx Status:"
-          echo "   sudo systemctl status nginx"
-
-      - name: Verify Security Group Configuration
-        run: |
-          echo "🔒 Checking security group configuration..."
-
-          # Get the security group ID
-          SG_ID=$(aws ec2 describe-security-groups --region eu-west-1 --filters Name=group-name,Values=app-server-sg --query 'SecurityGroups[0].GroupId' --output text)
-          echo "Security Group ID: $SG_ID"
-
-          # Check inbound rules
-          echo "Inbound rules:"
-          aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions' --output table
-
-          # Check if port 80 is open
-          HTTP_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`80`]' --output text)
-          if [ -n "$HTTP_RULE" ]; then
-            echo "✅ Port 80 is open"
-          else
-            echo "❌ Port 80 is NOT open"
-          fi
-
-          # Check if port 22 is open
-          SSH_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]' --output text)
-          if [ -n "$SSH_RULE" ]; then
-            echo "✅ Port 22 is open"
-          else
-            echo "❌ Port 22 is NOT open"
-          fi
-
-      - name: Test Application Connectivity
-        run: |
-          echo "🔍 Testing application connectivity..."
-          sleep 30
-          echo "Testing HTTP connectivity..."
-          curl -v --connect-timeout 10 http://${{ steps.get-ip.outputs.instance_ip }} || echo "HTTP connection failed"
-          echo "Testing SSH connectivity..."
-          ssh -i ~/.ssh/id_rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@${{ steps.get-ip.outputs.instance_ip }} "echo 'SSH connection successful'" || echo "SSH connection failed"
-          echo "Getting application status..."
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'STATUSEOF'
-          echo "=== PM2 Status ==="
-          pm2 status || echo "PM2 not found or not running"
-          echo ""
-          echo "=== Nginx Status ==="
-          sudo systemctl status nginx --no-pager
-          echo ""
-          echo "=== Application Logs ==="
-          pm2 logs nextjs-app --lines 10 || echo "No PM2 logs available"
-          echo ""
-          echo "=== Port Status ==="
-          sudo ss -tlnp | grep :3000 || echo "Port 3000 not listening"
-          sudo ss -tlnp | grep :80 || echo "Port 80 not listening"
-          echo ""
-          echo "=== Nginx Configuration ==="
-          sudo nginx -t
-          echo ""
-          echo "=== Test local connectivity ==="
-          curl -f http://localhost:3000 > /dev/null 2>&1 && echo "✅ App accessible on localhost:3000" || echo "❌ App NOT accessible on localhost:3000"
-          curl -f http://localhost:80 > /dev/null 2>&1 && echo "✅ Nginx accessible on localhost:80" || echo "❌ Nginx NOT accessible on localhost:80"
-          STATUSEOF
-
-      - name: Manual Debug Check (if deployment fails)
-        if: failure()
-        run: |
-          echo "🔧 Manual debug check after deployment failure..."
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'DEBUGEOF'
-          echo "=== System Information ==="
-          echo "Node.js version:"
-          node --version || echo "Node.js not installed"
-          echo "NPM version:"
-          npm --version || echo "NPM not installed"
-          echo "PM2 version:"
-          pm2 --version || echo "PM2 not installed"
-
-          echo "=== Process Status ==="
-          echo "PM2 processes:"
-          pm2 list || echo "PM2 not available"
-          echo "Nginx status:"
-          sudo systemctl status nginx --no-pager
-
-          echo "=== Port Status ==="
-          echo "Listening ports:"
-          sudo ss -tlnp
-
-          echo "=== Directory Contents ==="
-          echo "Current directory:"
-          pwd
-          ls -la
-          echo "Home directory:"
-          ls -la /home/ubuntu/
-
-          echo "=== Application Directory ==="
-          if [ -d "/home/ubuntu/nextjs-s3-upload-app" ]; then
-            echo "App directory exists:"
-            ls -la /home/ubuntu/nextjs-s3-upload-app/
-            echo "Package.json:"
-            cat /home/ubuntu/nextjs-s3-upload-app/package.json || echo "No package.json"
-          else
-            echo "App directory does not exist"
-          fi
-
-          echo "=== Recent Logs ==="
-          echo "System logs:"
-          sudo journalctl -n 20 --no-pager
-          DEBUGEOF
