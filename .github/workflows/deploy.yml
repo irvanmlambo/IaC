@@ -104,9 +104,17 @@ jobs:
           chmod 600 key.pem
           ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$SERVER_IP <<'EOSSH'
             set -e
+            echo "=== Upgrading Node.js to v18 ==="
+            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            node --version
+            npm --version
+            echo "=== Installing PM2 ==="
+            sudo npm install -g pm2
             export PATH=$PATH:$(npm bin -g):/usr/local/bin
+            echo "PM2 location: $(which pm2)"
+            pm2 --version || { echo "PM2 install failed"; exit 1; }
             cd /home/ubuntu/nextjs-s3-upload-app
-            npm install -g pm2 || true
             pm2 kill || true
             pm2 start npm --name nextjs-app -- start
             pm2 status
