@@ -112,6 +112,7 @@ jobs:
           npm install
 
           echo "=== Building application ==="
+          export NODE_OPTIONS=--max-old-space-size=3072
           npm run build
 
           echo "=== Installing PM2 ==="
