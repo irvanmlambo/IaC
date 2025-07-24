@@ -26,9 +26,15 @@ data "aws_security_group" "app_server_sg" {
 
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
-  instance_type = "t2.micro"
+  instance_type = "t3.micro" # Free tier eligible (use t2.micro if t3.micro not available in your region)
   key_name      = data.aws_key_pair.deployer.key_name
   vpc_security_group_ids = [data.aws_security_group.app_server_sg.id]
+
+  # Ensure EBS root volume is free tier eligible
+  root_block_device {
+    volume_size = 8 # Free tier allows up to 30GB total
+    volume_type = "gp3" # Free tier eligible
+  }
 
   tags = {
     Name = "devops-app-server"
@@ -44,7 +50,7 @@ resource "aws_instance" "app_server" {
       "echo 'SSH connection successful'",
       "whoami",
       "sudo apt-get update",
-      "curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash -",
+      "curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -",
       "sudo apt-get install -y nodejs nginx git mysql-client",
       "git clone https://github.com/irvanmlambo/IaC.git",
       "cd IaC && npm install && npm run build && npm start &"
@@ -62,14 +68,15 @@ resource "aws_instance" "app_server" {
 }
 
 resource "aws_db_instance" "mysql_db" {
-  engine             = "mysql"
-  engine_version     = "8.0.35"
-  instance_class     = "db.t3.micro"
-  allocated_storage  = 20
-  db_name            = "devopsdb"
-  username           = var.db_username
-  password           = var.db_password
+  engine               = "mysql"
+  engine_version       = "8.0.35"
+  instance_class       = "db.t3.micro" # Free tier eligible (use db.t2.micro if t3.micro not available)
+  allocated_storage    = 20 # Free tier allows up to 20GB
+  db_name              = "devopsdb"
+  username             = var.db_username
+  password             = var.db_password
   parameter_group_name = "default.mysql8.0"
   publicly_accessible  = true
   skip_final_snapshot  = true
+  # Free tier: only one RDS instance per month is free
 }
