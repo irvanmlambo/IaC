@@ -68,6 +68,12 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
+      - name: Pre-Terraform SG Import/Create
+        run: |
+          cd infrastructure
+          chmod +x pre_terraform.sh
+          ./pre_terraform.sh
+
       - name: Terraform Apply
         run: terraform apply -auto-approve -var="private_key=${{ secrets.EC2_SSH_PRIVATE_KEY }}"
 
