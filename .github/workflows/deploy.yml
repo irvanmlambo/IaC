@@ -69,7 +69,7 @@ jobs:
         run: terraform init
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve -var="private_key=${{ secrets.EC2_SSH_PRIVATE_KEY }}"
 
       - name: Get EC2 Instance IP
         id: get_ip

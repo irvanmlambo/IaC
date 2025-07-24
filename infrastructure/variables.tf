@@ -16,3 +16,9 @@ variable "db_password" {
   description = "Password for the RDS database"
   sensitive   = true
 }
+
+variable "private_key" {
+  description = "The private key for remote exec"
+  type        = string
+  sensitive   = true
+}

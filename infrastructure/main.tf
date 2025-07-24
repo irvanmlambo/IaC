@@ -49,16 +49,15 @@ resource "aws_instance" "app_server" {
       "git clone https://github.com/irvanmlambo/IaC.git",
       "cd IaC && npm install && npm run build && npm start &"
     ]
-  }
-
-  connection {
-    type        = "ssh"
-    user        = "ubuntu"
-    private_key = file("${path.module}/githubkeys")
-    host        = self.public_ip
-    timeout     = "10m"
-    agent       = false
-    target_platform = "unix"
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = var.private_key
+      host        = self.public_ip
+      timeout     = "10m"
+      agent       = false
+      target_platform = "unix"
+    }
   }
 }
 
