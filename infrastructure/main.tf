@@ -78,7 +78,7 @@ resource "aws_security_group" "app_server_sg" {
 
 # Use the existing SG if found, otherwise use the one we create
 locals {
-  app_server_sg_id = length(data.aws_security_group.existing_app_server_sg.ids) > 0 ? data.aws_security_group.existing_app_server_sg.id : aws_security_group.app_server_sg.id
+  app_server_sg_id = can(data.aws_security_group.existing_app_server_sg.id) ? data.aws_security_group.existing_app_server_sg.id : aws_security_group.app_server_sg.id
 }
 
 resource "aws_instance" "app_server" {
