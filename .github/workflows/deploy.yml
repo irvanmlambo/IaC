@@ -73,130 +73,130 @@ jobs:
       - name: Deploy App via SSH
         run: |
           ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'EOF'
-            set -e  # Exit on any error
-            echo "=== Starting deployment ==="
-            
-            echo "=== Updating packages ==="
-            sudo apt update
-            
-            echo "=== Installing Node.js ==="
-            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-            sudo apt install -y nodejs nginx git mysql-client net-tools
-            
-            echo "=== Checking Node.js installation ==="
-            node --version
-            npm --version
-            
-            echo "=== Stopping nginx ==="
-            sudo systemctl stop nginx || true
+          set -e  # Exit on any error
 
-            echo "=== Cleaning up existing app ==="
-            rm -rf /home/ubuntu/nextjs-s3-upload-app
-            
-            echo "=== Cloning repository ==="
-            cd /home/ubuntu
-            git clone https://github.com/${{ github.repository }}.git nextjs-s3-upload-app
-            cd nextjs-s3-upload-app
+          # === Starting deployment ===
+          echo "=== Updating packages ==="
+          sudo apt update
 
-            echo "=== Creating environment file ==="
-            cat > .env.local << 'ENVEOF'
-            AWS_REGION=eu-west-1
-            AWS_BUCKET_NAME=your-bucket-name
-            DB_HOST=your-db-host
-            DB_USER=admin
-            DB_PASS=${{ secrets.DB_PASSWORD }}
-            DB_NAME=uploadappdb
-            ENVEOF
+          echo "=== Installing Node.js ==="
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt install -y nodejs nginx git mysql-client net-tools
 
-            echo "=== Installing dependencies ==="
-            npm install
-            
-            echo "=== Building application ==="
-            npm run build
-            
-            echo "=== Installing PM2 ==="
-            npm install -g pm2
-            export PATH=$PATH:$(npm bin -g):/usr/local/bin
-            echo "PATH is: $PATH"
-            echo "PM2 location: $(which pm2)"
-            pm2 --version || { echo "PM2 install failed"; exit 1; }
-            
-            echo "=== Checking PM2 installation ==="
-            pm2 --version
-            
-            echo "=== Starting application with PM2 ==="
-            pm2 kill || true
-            pm2 start npm --name nextjs-app -- start
+          echo "=== Checking Node.js installation ==="
+          node --version
+          npm --version
+
+          echo "=== Stopping nginx ==="
+          sudo systemctl stop nginx || true
+
+          echo "=== Cleaning up existing app ==="
+          rm -rf /home/ubuntu/nextjs-s3-upload-app
+
+          echo "=== Cloning repository ==="
+          cd /home/ubuntu
+          git clone https://github.com/${{ github.repository }}.git nextjs-s3-upload-app
+          cd nextjs-s3-upload-app
+
+          echo "=== Creating environment file ==="
+          cat > .env.local << 'ENVEOF'
+          AWS_REGION=eu-west-1
+          AWS_BUCKET_NAME=your-bucket-name
+          DB_HOST=your-db-host
+          DB_USER=admin
+          DB_PASS=${{ secrets.DB_PASSWORD }}
+          DB_NAME=uploadappdb
+          ENVEOF
+
+          echo "=== Installing dependencies ==="
+          npm install
+
+          echo "=== Building application ==="
+          npm run build
+
+          echo "=== Installing PM2 ==="
+          npm install -g pm2
+          export PATH=$PATH:$(npm bin -g):/usr/local/bin
+          echo "PATH is: $PATH"
+          echo "PM2 location: $(which pm2)"
+          pm2 --version || { echo "PM2 install failed"; exit 1; }
+
+          echo "=== Checking PM2 installation ==="
+          pm2 --version
+
+          echo "=== Starting application with PM2 ==="
+          pm2 kill || true
+          pm2 start npm --name nextjs-app -- start
+          pm2 logs nextjs-app --lines 20
+
+          echo "=== Waiting for app to start ==="
+          sleep 15
+
+          echo "=== Checking PM2 status ==="
+          pm2 status
+
+          echo "=== Checking if app is running ==="
+          if ! pm2 status | grep -q "nextjs-app.*online"; then
+            echo "ERROR: Application failed to start"
             pm2 logs nextjs-app --lines 20
-            
-            echo "=== Waiting for app to start ==="
-            sleep 15
-            
-            echo "=== Checking PM2 status ==="
-            pm2 status
-            
-            echo "=== Checking if app is running ==="
-            if ! pm2 status | grep -q "nextjs-app.*online"; then
-              echo "ERROR: Application failed to start"
-              pm2 logs nextjs-app --lines 20
-              exit 1
-            fi
-            
-            echo "=== Configuring nginx ==="
-            sudo tee /etc/nginx/sites-available/nextjs-app << 'NGINXEOF'
-            server {
-                listen 80;
-                server_name _;
-                
-                location / {
-                    proxy_pass http://localhost:3000;
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection 'upgrade';
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_cache_bypass $http_upgrade;
-                }
-            }
-            NGINXEOF
-            
-            echo "=== Enabling nginx site ==="
-            sudo ln -sf /etc/nginx/sites-available/nextjs-app /etc/nginx/sites-enabled/
-            sudo rm -f /etc/nginx/sites-enabled/default
-            
-            echo "=== Testing nginx configuration ==="
-            sudo nginx -t
-            
-            echo "=== Starting nginx ==="
-            sudo systemctl restart nginx
-            sudo systemctl enable nginx
-            
-            echo "=== Checking nginx status ==="
-            sudo systemctl status nginx --no-pager
-            
-            echo "=== Verifying nginx is running ==="
-            if ! sudo systemctl is-active --quiet nginx; then
-              echo "ERROR: Nginx failed to start"
-              sudo systemctl status nginx
-              exit 1
-            fi
-            
-            echo "=== Testing local connectivity ==="
-            sleep 5
-            if ! curl -f http://localhost:3000 > /dev/null 2>&1; then
-              echo "ERROR: Application not accessible on localhost:3000"
-              pm2 logs nextjs-app --lines 10
-              exit 1
-            fi
-            
-            echo "=== Deployment completed successfully! ==="
-            echo "Application URL: http://${{ steps.get-ip.outputs.instance_ip }}"
-            echo "PM2 Status:"
-            pm2 status
-            echo "Nginx Status:"
-            sudo systemctl status nginx --no-pager
+            exit 1
+          fi
+
+          echo "=== Configuring nginx ==="
+          sudo tee /etc/nginx/sites-available/nextjs-app << 'NGINXEOF'
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass http://localhost:3000;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+          NGINXEOF
+
+          echo "=== Enabling nginx site ==="
+          sudo ln -sf /etc/nginx/sites-available/nextjs-app /etc/nginx/sites-enabled/
+          sudo rm -f /etc/nginx/sites-enabled/default
+
+          echo "=== Testing nginx configuration ==="
+          sudo nginx -t
+
+          echo "=== Starting nginx ==="
+          sudo systemctl restart nginx
+          sudo systemctl enable nginx
+
+          echo "=== Checking nginx status ==="
+          sudo systemctl status nginx --no-pager
+
+          echo "=== Verifying nginx is running ==="
+          if ! sudo systemctl is-active --quiet nginx; then
+            echo "ERROR: Nginx failed to start"
+            sudo systemctl status nginx
+            exit 1
+          fi
+
+          echo "=== Testing local connectivity ==="
+          sleep 5
+          if ! curl -f http://localhost:3000 > /dev/null 2>&1; then
+            echo "ERROR: Application not accessible on localhost:3000"
+            pm2 logs nextjs-app --lines 10
+            exit 1
+          fi
+
+          echo "=== Deployment completed successfully! ==="
+          echo "Application URL: http://${{ steps.get-ip.outputs.instance_ip }}"
+          echo "PM2 Status:"
+          pm2 status
+          echo "Nginx Status:"
+          sudo systemctl status nginx --no-pager
           EOF
 
       - name: Display Access Information
@@ -219,15 +219,15 @@ jobs:
       - name: Verify Security Group Configuration
         run: |
           echo "🔒 Checking security group configuration..."
-          
+
           # Get the security group ID
           SG_ID=$(aws ec2 describe-security-groups --region eu-west-1 --filters Name=group-name,Values=app-server-sg --query 'SecurityGroups[0].GroupId' --output text)
           echo "Security Group ID: $SG_ID"
-          
+
           # Check inbound rules
           echo "Inbound rules:"
           aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions' --output table
-          
+
           # Check if port 80 is open
           HTTP_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`80`]' --output text)
           if [ -n "$HTTP_RULE" ]; then
@@ -235,7 +235,7 @@ jobs:
           else
             echo "❌ Port 80 is NOT open"
           fi
-          
+
           # Check if port 22 is open
           SSH_RULE=$(aws ec2 describe-security-groups --region eu-west-1 --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]' --output text)
           if [ -n "$SSH_RULE" ]; then
@@ -247,40 +247,32 @@ jobs:
       - name: Test Application Connectivity
         run: |
           echo "🔍 Testing application connectivity..."
-          
-          # Wait a bit for the app to fully start
           sleep 30
-          
-          # Test if the server is reachable
           echo "Testing HTTP connectivity..."
           curl -v --connect-timeout 10 http://${{ steps.get-ip.outputs.instance_ip }} || echo "HTTP connection failed"
-          
-          # Test SSH connectivity
           echo "Testing SSH connectivity..."
           ssh -i ~/.ssh/id_rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no ubuntu@${{ steps.get-ip.outputs.instance_ip }} "echo 'SSH connection successful'" || echo "SSH connection failed"
-          
-          # Get application status via SSH
           echo "Getting application status..."
           ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'STATUSEOF'
-            echo "=== PM2 Status ==="
-            pm2 status || echo "PM2 not found or not running"
-            echo ""
-            echo "=== Nginx Status ==="
-            sudo systemctl status nginx --no-pager
-            echo ""
-            echo "=== Application Logs ==="
-            pm2 logs nextjs-app --lines 10 || echo "No PM2 logs available"
-            echo ""
-            echo "=== Port Status ==="
-            sudo ss -tlnp | grep :3000 || echo "Port 3000 not listening"
-            sudo ss -tlnp | grep :80 || echo "Port 80 not listening"
-            echo ""
-            echo "=== Nginx Configuration ==="
-            sudo nginx -t
-            echo ""
-            echo "=== Test local connectivity ==="
-            curl -f http://localhost:3000 > /dev/null 2>&1 && echo "✅ App accessible on localhost:3000" || echo "❌ App NOT accessible on localhost:3000"
-            curl -f http://localhost:80 > /dev/null 2>&1 && echo "✅ Nginx accessible on localhost:80" || echo "❌ Nginx NOT accessible on localhost:80"
+          echo "=== PM2 Status ==="
+          pm2 status || echo "PM2 not found or not running"
+          echo ""
+          echo "=== Nginx Status ==="
+          sudo systemctl status nginx --no-pager
+          echo ""
+          echo "=== Application Logs ==="
+          pm2 logs nextjs-app --lines 10 || echo "No PM2 logs available"
+          echo ""
+          echo "=== Port Status ==="
+          sudo ss -tlnp | grep :3000 || echo "Port 3000 not listening"
+          sudo ss -tlnp | grep :80 || echo "Port 80 not listening"
+          echo ""
+          echo "=== Nginx Configuration ==="
+          sudo nginx -t
+          echo ""
+          echo "=== Test local connectivity ==="
+          curl -f http://localhost:3000 > /dev/null 2>&1 && echo "✅ App accessible on localhost:3000" || echo "❌ App NOT accessible on localhost:3000"
+          curl -f http://localhost:80 > /dev/null 2>&1 && echo "✅ Nginx accessible on localhost:80" || echo "❌ Nginx NOT accessible on localhost:80"
           STATUSEOF
 
       - name: Manual Debug Check (if deployment fails)
@@ -288,42 +280,42 @@ jobs:
         run: |
           echo "🔧 Manual debug check after deployment failure..."
           ssh -i ~/.ssh/id_rsa ubuntu@${{ steps.get-ip.outputs.instance_ip }} << 'DEBUGEOF'
-            echo "=== System Information ==="
-            echo "Node.js version:"
-            node --version || echo "Node.js not installed"
-            echo "NPM version:"
-            npm --version || echo "NPM not installed"
-            echo "PM2 version:"
-            pm2 --version || echo "PM2 not installed"
-            
-            echo "=== Process Status ==="
-            echo "PM2 processes:"
-            pm2 list || echo "PM2 not available"
-            echo "Nginx status:"
-            sudo systemctl status nginx --no-pager
-            
-            echo "=== Port Status ==="
-            echo "Listening ports:"
-            sudo ss -tlnp
-            
-            echo "=== Directory Contents ==="
-            echo "Current directory:"
-            pwd
-            ls -la
-            echo "Home directory:"
-            ls -la /home/ubuntu/
-            
-            echo "=== Application Directory ==="
-            if [ -d "/home/ubuntu/nextjs-s3-upload-app" ]; then
-              echo "App directory exists:"
-              ls -la /home/ubuntu/nextjs-s3-upload-app/
-              echo "Package.json:"
-              cat /home/ubuntu/nextjs-s3-upload-app/package.json || echo "No package.json"
-            else
-              echo "App directory does not exist"
-            fi
-            
-            echo "=== Recent Logs ==="
-            echo "System logs:"
-            sudo journalctl -n 20 --no-pager
+          echo "=== System Information ==="
+          echo "Node.js version:"
+          node --version || echo "Node.js not installed"
+          echo "NPM version:"
+          npm --version || echo "NPM not installed"
+          echo "PM2 version:"
+          pm2 --version || echo "PM2 not installed"
+
+          echo "=== Process Status ==="
+          echo "PM2 processes:"
+          pm2 list || echo "PM2 not available"
+          echo "Nginx status:"
+          sudo systemctl status nginx --no-pager
+
+          echo "=== Port Status ==="
+          echo "Listening ports:"
+          sudo ss -tlnp
+
+          echo "=== Directory Contents ==="
+          echo "Current directory:"
+          pwd
+          ls -la
+          echo "Home directory:"
+          ls -la /home/ubuntu/
+
+          echo "=== Application Directory ==="
+          if [ -d "/home/ubuntu/nextjs-s3-upload-app" ]; then
+            echo "App directory exists:"
+            ls -la /home/ubuntu/nextjs-s3-upload-app/
+            echo "Package.json:"
+            cat /home/ubuntu/nextjs-s3-upload-app/package.json || echo "No package.json"
+          else
+            echo "App directory does not exist"
+          fi
+
+          echo "=== Recent Logs ==="
+          echo "System logs:"
+          sudo journalctl -n 20 --no-pager
           DEBUGEOF
