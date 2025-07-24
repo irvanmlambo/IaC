@@ -32,6 +32,12 @@ jobs:
         working-directory: ./infrastructure
         run: terraform init
 
+      - name: Create dummy githubkeys if missing
+        run: |
+          if [ ! -f infrastructure/githubkeys ]; then
+            touch infrastructure/githubkeys
+          fi
+
       - name: Terraform Destroy
         working-directory: ./infrastructure
         run: terraform destroy -auto-approve 
