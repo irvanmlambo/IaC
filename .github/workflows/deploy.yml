@@ -115,8 +115,9 @@ jobs:
             npm run build
             
             echo "=== Installing PM2 ==="
-            sudo npm install -g pm2
-            export PATH=$PATH:$(npm bin -g)
+            npm install -g pm2
+            export PATH=$PATH:$(npm bin -g):/usr/local/bin
+            echo "PATH is: $PATH"
             echo "PM2 location: $(which pm2)"
             pm2 --version || { echo "PM2 install failed"; exit 1; }
             
@@ -126,6 +127,7 @@ jobs:
             echo "=== Starting application with PM2 ==="
             pm2 kill || true
             pm2 start npm --name nextjs-app -- start
+            pm2 logs nextjs-app --lines 20
             
             echo "=== Waiting for app to start ==="
             sleep 15
