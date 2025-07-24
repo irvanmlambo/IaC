@@ -19,16 +19,68 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# Use data source to reference existing security group
-data "aws_security_group" "app_server_sg" {
-  name = "app-server-sg"
+# Try to look up an existing security group named 'app-server-sg'
+data "aws_security_group" "existing_app_server_sg" {
+  filter {
+    name   = "group-name"
+    values = ["app-server-sg"]
+  }
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Create the security group if it does not exist
+resource "aws_security_group" "app_server_sg" {
+  name        = "app-server-sg"
+  description = "Allow SSH, HTTP, and HTTPS"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy = false
+  }
+}
+
+# Use the existing SG if found, otherwise use the one we create
+locals {
+  app_server_sg_id = length(data.aws_security_group.existing_app_server_sg.ids) > 0 ? data.aws_security_group.existing_app_server_sg.id : aws_security_group.app_server_sg.id
 }
 
 resource "aws_instance" "app_server" {
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.micro" # Free tier eligible (use t2.micro if t3.micro not available in your region)
   key_name      = data.aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [data.aws_security_group.app_server_sg.id]
+  vpc_security_group_ids = [local.app_server_sg_id]
 
   # Ensure EBS root volume is free tier eligible
   root_block_device {
