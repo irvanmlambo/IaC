@@ -24,7 +24,9 @@ data "aws_vpc" "default" {
   default = true
 }
 
-# Create the security group (always managed by Terraform)
+# Create the security group if it does not exist (Terraform will manage it)
+# If you already have a security group named 'app-server-sg', import it with:
+# terraform import aws_security_group.app_server_sg <sg-id>
 resource "aws_security_group" "app_server_sg" {
   name        = "app-server-sg"
   description = "Allow SSH, HTTP, and HTTPS"
