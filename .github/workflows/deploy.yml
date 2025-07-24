@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,10 +41,44 @@ jobs:
             .env.local
             next.config.ts
 
-  deploy:
+  terraform:
     needs: build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infrastructure
+    outputs:
+      SERVER_IP: ${{ steps.get_ip.outputs.SERVER_IP }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+      - name: Get EC2 Instance IP
+        id: get_ip
+        run: |
+          echo "SERVER_IP=$(terraform output -raw ec2_public_ip)" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: [build, terraform]
+    runs-on: ubuntu-latest
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -55,7 +88,7 @@ jobs:
 
       - name: Copy build to server via rsync
         env:
-          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_IP: ${{ needs.terraform.outputs.SERVER_IP }}
           SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
         run: |
           echo "$SSH_KEY" > key.pem
@@ -64,7 +97,7 @@ jobs:
 
       - name: Restart app on server
         env:
-          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_IP: ${{ needs.terraform.outputs.SERVER_IP }}
           SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
         run: |
           echo "$SSH_KEY" > key.pem
